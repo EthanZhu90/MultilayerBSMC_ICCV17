@@ -1,0 +1,12 @@
+clear; 
+clc; 
+runSequence('cars1'); 
+runSequence('cars2'); 
+runSequence('cars3'); 
+runSequence('cars4'); 
+runSequence('cars5'); 
+runSequence('cars6');
+runSequence('cars7'); 
+runSequence('cars8');
+runSequence('people1');
+runSequence('people2');

@@ -1,0 +1,6 @@
+April 8th 2016 
+ modify the method to clustering the trajectories. Sparse segmentation  
+label will not propagate to far away trajectories. 
+
+Next: 
+To return to the binary segmentation. 

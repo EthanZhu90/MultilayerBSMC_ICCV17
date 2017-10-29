@@ -1,0 +1,50 @@
+function [] = runSequence(segname)
+%%% Path and Setup %%%%%%%%%%%%%%%%%%%
+clc;
+%clear; 
+if ~exist(segname, 'var')
+    segname = 'cars1'; 
+end
+
+restoredefaultpath;
+fprintf('Processing Sequence %s..........\n\n', segname); 
+addpath(genpath('./BSMC/'));
+
+ds = moseg.BroxDataset;
+seq = ds.getSequence(segname);
+
+
+detector = moseg.GridDetector(8);  %%stepsize is 8, 4 is too dense, 
+flowpath = [seq.SeqRoot '/OpticalFlow/'];
+% display(flowpath)
+tracker = moseg.LDOFTracker(flowpath);
+
+algopt = moseg.MosegAlgLblPropOptions; %% store the option parameter
+algopt.sigma_noise = 0.5;
+alg = moseg.MosegAlgLblProp(1, 'Options', algopt);
+
+bs = moseg.BackgroundSubtractor2('MosegAlgorithm', alg, 'Tracker', tracker, 'Detector', detector);
+
+% process moseg in several frames for backgroundsubtractor
+bs.initialize(seq);  
+for i= seq.Frames
+    bs.step(seq);
+    % uncomment if you want check the intermidiate retult
+    %bs.plot(seq, i);
+    %pause();
+end
+
+gtpath = sprintf('./Data/groundtruth/%s_gt.mat', segname); 
+outpath = sprintf('./CombinedResults/DataFiles_BS2/%s', segname); 
+respath = sprintf('./CombinedResults/Results_BS2/%s', segname );
+mosegOutpath = sprintf('./CombinedResults/DataFiles_BS2/%s', segname);
+
+% % [img_template start_frame last_frame gt_template options] = bsmc_loadDataset(segname, 12);
+% % % 
+% % % 
+% % % bsmc_exportResults(img_template, gt_template, start_frame, last_frame, mosegOutpath, outpath, respath, options, 'stats'); %% org startFrame is 5
+% % bsmc_exportResults(img_template, gt_template, start_frame, last_frame, mosegOutpath, outpath, respath, gtpath, options, 'stats2'); 
+% % % bsmc_exportResults(img_template, gt_template, start_frame, last_frame, mosegOutpath, outpath, respath, gtpath, options, 'evalMultiLabel');
+% % bsmc_exportResults(img_template, gt_template, start_frame, last_frame, mosegOutpath, outpath, respath, gtpath, options, 'seg'); %% start from 3. 
+% % % %bsmc_exportResults(img_template, gt_template, 1, last_frame, mosegOutpath, outpath, respath, options, 'tracks');
+% % %                                             startFrame lastFrame

@@ -1,0 +1,750 @@
+classdef MosegDriver2 < handle    
+    properties 
+        mosegmenter;
+    end
+    
+    properties (Access = public)  %private changed by Ethan 10/23
+        curframe;
+      
+        % Tracking stuff
+        points;
+        trackno;
+        maxTrackno;
+        tracker;
+        detector;
+        im1;
+
+        % Motionsegmentation
+        alg;
+        startframe;
+    end
+    
+    methods
+        function obj = MosegDriver2(varargin)
+            
+            if (mod(length(varargin),2) ~= 0)
+                error('Incorrect number of arguments');
+            end
+            
+            % Setup defaults
+            obj.startframe = 1;
+            obj.detector = moseg.GridDetector;
+            %obj.tracker = moseg.BidirectionalTracker(moseg.LKTracker);
+            obj.tracker = moseg.LDOFTracker();
+            obj.alg = moseg.MosegAlgLblProp(obj.startframe);
+            
+            % Hold at most 5 points            
+            buffSize = 5;
+            for i=1:2:length(varargin)
+                switch(varargin{i})
+                    case 'Algorithm'
+                        obj.alg = varargin{i+1};
+                    case 'Detector'
+                        obj.detector = varargin{i+1};
+                    case 'Tracker'
+                        obj.tracker = varargin{i+1};
+                    case 'StartFrame'
+                        obj.startframe = varargin{i+1};
+                    case 'BuffSize'
+                        buffSize = varargin{i+1};
+                    otherwise
+                        error('Unrecognized parameter name %s', varargin{i});
+                end
+            end
+                        
+            % Reset the algorithm
+            obj.alg.reset(obj.startframe); % For stateful algorithms.            
+            obj.curframe = obj.startframe-1;
+            
+            opt = moseg.MosegOptions(buffSize); 
+            obj.mosegmenter = moseg.Moseg(obj.alg, opt);
+            
+            % Initialize data structures
+            obj.points = zeros(2,0);
+            obj.trackno = [];
+            obj.maxTrackno = 0;                     
+            
+        end
+        
+        function step(obj, im2)
+            import moseg.*;       
+            tid= tic;
+            obj.curframe = obj.curframe + 1;
+            
+            fprintf('============================\n');
+            fprintf('Processing Frame %03d (%d).\n', obj.curframe, obj.curframe-obj.startframe+1);
+            
+            
+            tid2 = tic;
+            
+            ntracked = 0;
+            if (obj.curframe ~= obj.startframe)
+                % Track points
+                [obj.points, tracked] = obj.tracker.step(obj.im1, im2, obj.curframe-1, obj.points);
+                obj.points = obj.points(:, tracked);
+                obj.trackno = obj.trackno(tracked);
+                ntracked = length(obj.points);
+            end
+            tracktime = toc(tid2);
+            
+            % Detect new points
+            newpoints = obj.detector.detect(im2, obj.points, obj.curframe);
+            newtrackno = obj.maxTrackno + (1:size(newpoints,2));
+            obj.maxTrackno = obj.maxTrackno + size(newpoints,2);
+            
+            % Append tracked points to detected points
+            obj.trackno = [obj.trackno newtrackno];
+            obj.points = [obj.points newpoints];
+
+            %obj.alg.Frame = im2;
+            obj.mosegmenter.step(obj.points, obj.trackno);            
+       
+            obj.im1 = im2;
+            
+            elapsedtime = toc(tid);
+            fprintf('\tCompleted Frame %03d (%d) . PointsTracked %d. Tracks: %d. Elapsed time %f\n', ...
+                obj.curframe, obj.curframe-obj.startframe+1, ntracked, size(obj.points,2), elapsedtime);
+
+            fprintf('\tTiming Stats: tracktime=%f, ', tracktime); 
+            obj.mosegmenter.printStats();
+            fprintf('\tAlgorithm Stats: ');        
+            obj.alg.printStats();
+        end
+
+        function lookahead(obj, im2)
+            import moseg.*;       
+            tid= tic;
+            obj.curframe = obj.curframe + 1;
+            
+            fprintf('============================\n');
+            fprintf('Processing Frame %03d (%d).\n', obj.curframe, obj.curframe-obj.startframe+1);
+            
+            
+            tid2 = tic;
+            
+            ntracked = 0;
+            if (obj.curframe ~= obj.startframe)
+                % Track points
+                [obj.points, tracked] = obj.tracker.step(obj.im1, im2, obj.curframe-1, obj.points);
+%                 [obj.points, tracked, ttrackno] = obj.tracker.step(obj.im1, im2, obj.curframe-1, obj.points);
+                obj.points = obj.points(:, tracked);
+                obj.trackno = obj.trackno(tracked);
+%                 assert(all(ttrackno(tracked) == obj.trackno));
+                ntracked = length(obj.points);
+            end
+            tracktime = toc(tid2);
+            
+            % Detect new points
+            newpoints = obj.detector.detect(im2, obj.points, obj.curframe);
+            newtrackno = obj.maxTrackno + (1:size(newpoints,2));
+            obj.maxTrackno = obj.maxTrackno + size(newpoints,2);
+            
+            % Append tracked points to detected points
+            obj.trackno = [obj.trackno newtrackno];
+            obj.points = [obj.points newpoints];
+
+            %obj.alg.Frame = im2;
+            obj.mosegmenter.lookahead(obj.points, obj.trackno);            
+            
+            obj.im1 = im2;
+            
+            elapsedtime = toc(tid);
+            fprintf('\tCompleted Frame %03d (%d) . PointsTracked %d. Tracks: %d. Elapsed time %f\n', ...
+                obj.curframe, obj.curframe-obj.startframe+1, ntracked, size(obj.points,2), elapsedtime);
+
+            fprintf('\tTiming Stats: tracktime=%f, ', tracktime); 
+            obj.mosegmenter.printStats();
+            fprintf('\tAlgorithm Stats: ');        
+            obj.alg.printStats();
+        end
+        
+        % Simple Ploting, Should useing MosegGUI for interactivity
+        function plot(obj, im, varargin)
+            ha = gca;
+            lookahead = 0;
+            for i=1:2:length(varargin)
+                switch(varargin{i})
+                    case 'Parent'
+                        ha = varargin{i+1};
+                    case 'LookAhead'
+                        lookahead = varargin{i+1};                        
+                    otherwise
+                        error('Unknown parameter name %s', varargin{i});
+                end
+            end
+            
+            im = obj.mosegmenter.genim(im, true, 'LookAhead', lookahead);
+            imshow(im, 'Border','tight','InitialMagnification','fit', 'Parent',ha );            
+            
+            drawnow;            
+        end        
+
+    end
+    
+    methods (Static=true)
+        % All these functions are for convenience. They can be used to
+        % perform evaluation.      
+        function [outdir] = getOutDir() %%[outdir, outviddir] = getOutDir() 
+            outdir =  '~/Research/MotionSegResult/';  
+        end
+                
+        function seqdir = getStorageDir(algName, seq, expname, create)
+            outdir = moseg.MosegDriver2.getOutDir();
+            algdir = [outdir algName];
+            expdir =[algdir '/' expname];             
+            seqdir = [expdir '/' seq.SeqName];
+            if (create)
+                if (~exist(algdir, 'dir')); mkdir(algdir); end
+                if (~exist(expdir, 'dir')); mkdir(expdir); end                        
+                if (~exist(seqdir, 'dir')); mkdir(seqdir); end            
+            end
+        end
+        
+        function runall(ds, expname, varargin)
+            % Extract relevant args from varargin
+            numframes = 'all';
+            argused = true(1,length(varargin) ./ 2);
+            for i=1:2:length(varargin)
+                switch(varargin{i})
+                    case 'NumFrames'
+                        numframes = varargin{i+1};
+                    otherwise
+                        argused((i+1)/2) = false;
+                end
+            end
+            
+            mask = reshape([~argused; ~argused], 1, []);
+            % Send remaining argumnets to run
+                        
+            % Get list of sequences
+            [seqnames, seqnframes] = ds.getSequences();
+            if (~ischar(numframes))
+                idx = find(seqnframes >= numframes);
+            else
+                idx = 1:length(seqnames);
+            end
+
+            idx = 5; %%% for debug.  1 for cars1 26 for tennis, 6 for cars5
+            for j=idx
+                disp(seqnames{j});
+                if (ischar(numframes))
+                    ss = ds.getSequence(seqnames{j});
+                else
+                    ss = ds.getSequence(seqnames{j}, numframes);
+                end
+
+                disp('=======================');
+                disp(seqnames{j});
+                disp('=======================');
+                moseg.MosegDriver2.run(ss, expname, varargin{mask});
+            end
+        end            
+        
+        function run(seq, expname, varargin)
+            hm = vision.MarkerInserter;
+            mosegdrv = moseg.MosegDriver2(varargin{:}, 'StartFrame', seq.Frames(1));
+            statedir = moseg.MosegDriver2.getStorageDir(mosegdrv.alg.Name, seq, expname, false);
+            if (exist(statedir, 'dir'))
+                fprintf('State directory allready exist, skipping.\n');
+                return;
+            end
+            moseg.MosegDriver2.getStorageDir(mosegdrv.alg.Name,seq, expname, true);
+            
+            % Some detectors/trackers requires access to original Sequence
+            % data
+            mosegdrv.detector.SetSequence(seq);
+            mosegdrv.tracker.SetSequence(seq);
+            mosegdrv.alg.SetSequence(seq);
+            
+            for i=seq.Frames
+                im_ = seq.readImage(i); 
+                mosegdrv.step(im_);
+                m = mosegdrv.mosegmenter;
+                save([ statedir '/state' num2str(i) '.mat'], 'm');
+                
+                %%%%%%%%%%%% save the tracking image
+                state = m.CurrState; 
+                nlb = max(unique(state.lbls)); 
+                if(nlb ~= 1 )
+                    im = seq.readImage(i);            
+                
+                    %hlb = state.lbls(haslbl); 
+                    cla;
+                    %%imshow(im);
+                    outim = im; 
+                    cmap = [0 0 0; hsv(nlb)] * 255;
+                    for lbi = unique(state.lbls)
+                         points = round(state.points(1:2, state.lbls == lbi));
+                         hm.Shape = 'Plus';                   
+                         hm.BorderColor = 'Custom';
+                         hm.CustomBorderColor = cmap(lbi+1,:);
+                         outim = step(hm, outim, int16(points'));
+                         release(hm); 
+                        % imshow(outim); 
+                    end
+                    %imshow(outim);        
+                    imwrite(outim, [statedir '/tracking-' num2str(i) '.png'],'png');
+                
+                    %%% get the marked image without unlabled points. 
+                    outim = im; 
+                    cmap = [0 0 0; hsv(nlb)] * 255;
+                    lbtable = unique(state.lbls); 
+                    lbtable = lbtable(lbtable ~= 0); 
+                    for lbi = lbtable %%unique(state.lbls)
+                         points = round(state.points(1:2, state.lbls == lbi));
+                         hm.Shape = 'Plus';
+                         %hm.Fill = true;
+                         hm.BorderColor = 'Custom';
+                         hm.CustomBorderColor = cmap(lbi+1,:);
+                         outim = step(hm, outim, int16(points'));
+                         release(hm); 
+                        % imshow(outim); 
+                    end
+                    %imshow(outim);        
+                    imwrite(outim, [statedir '/trackingLabeled-' num2str(i) '.png'],'png');       
+                end          
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            end
+        end
+        
+        function printstats(stats)
+            fprintf('Evaluation results for %s\n', stats.seqname);
+            fprintf('MoSegEval Version 1.0\n');
+            fprintf('Number of frames used from the sequences:\n');
+            fprintf('%d\n', stats.numframes);
+            fprintf('Number of labeled frames in this time window:\n');
+            fprintf('%d\n', stats.numgtframes);
+            fprintf('--------------------------\n');
+            fprintf('Density (in percent):\n');
+            fprintf('%f\n', stats.density);
+            fprintf('--------------------------\n');
+            fprintf('Overall (per pixel) clustering error (in percent):\n');
+            fprintf('%f\n', stats.overallerr);
+            fprintf('Clustering error per region (in percent):\n');
+            fprintf('Region %d: \n%f\n',[0:stats.nregions-1; stats.rgnerr]);
+            fprintf('Visible regions in the evaluated part of the shot:\n');
+            fprintf('%d\n', stats.visrgns);
+            fprintf('--------------------------\n');
+            fprintf('Average (per region) clustering error (in percent):\n');
+            fprintf('%f\n', stats.avgerr);
+            fprintf('--------------------------\n');
+            fprintf('Number of clusters merged to obtain this result (oversegmentation error):\n');
+            fprintf('%d\n', stats.oversegpenalty);
+            fprintf('--------------------------\n');
+            fprintf('Number of regions with less than 10%% error (excluding background):\n');
+            fprintf('%d\n', stats.lt10percent);            
+        end
+        
+%         
+%         function replay(seq, algName, expname, varargin)
+%             ha = gca;
+%             for i=1:2:length(varargin)
+%                 switch(varargin{i})
+%                     case 'Parent'
+%                         ha = varargin{i+1};
+%                     otherwise
+%                         error('Unknown parameter name %s', varargin{i});
+%                 end
+%             end
+% 
+%             statedir = moseg.MosegDriver2.getStorageDir(algName,seq, expname, false);
+%             if (~exist(statedir, 'dir'))
+%                 fprintf('Cant find state dir, exiting.\n');
+%                 return;
+%             end
+%             
+%             for i=seq.Frames
+%                 load([ statedir '/state' num2str(i) '.mat'], 'm');
+%                 im = seq.readImage(i);
+%                 im = m.genim(im, true);
+%                 imshow(im, 'Border','tight','InitialMagnification','fit', 'Parent',ha);
+%                 drawnow;            
+%             end      
+%         end
+        
+%         function replaygt(seq, algName, expname, varargin)
+%             ha = gca;
+%             for i=1:2:length(varargin)
+%                 switch(varargin{i})
+%                     case 'Parent'
+%                         ha = varargin{i+1};
+%                     otherwise
+%                         error('Unknown parameter name %s', varargin{i});
+%                 end
+%             end
+% 
+%             statedir = moseg.MosegDriver2.getStorageDir(algName,seq, expname, false);
+%             if (~exist(statedir, 'dir'))
+%                 fprintf('Cant find state dir, exiting.\n');
+%                 return;
+%             end
+%             
+%             for i=[seq.GTFrames(:).fno]
+%                 load([ statedir '/state' num2str(i) '.mat'], 'm');
+%                 im = seq.readImage(i);
+%                 im = m.genim(im, true);
+%                 imshow(im, 'Border','tight','InitialMagnification','fit', 'Parent',ha);
+%                 drawnow;          
+%                 fprintf('Frame %d , labels :\n', i); disp(unique(m.CurrState.lbls(m.CurrState.lbls ~=0)));
+%                 fprintf('Press any key to go to next frame ..\n');
+%                 pause;
+%             end                  
+%         end
+%                 
+%         function genvidall(ds, algName, expname, numframes)
+%             if (nargin < 4)
+%                 numframes = 'all';
+%             end
+%             
+%             % Get list of sequences
+%             [seqnames, seqnframes] = ds.getSequences();
+% 
+%             if (~ischar(numframes))
+%                 idx = find(seqnframes >= numframes);
+%             else
+%                 idx = 1:length(seqnames);
+%             end
+% 
+%             for j=idx
+%                 disp('=======================');
+%                 disp(seqnames{j});
+%                 disp('=======================');
+%                 if (ischar(numframes))
+%                     s = ds.getSequence(seqnames{j});
+%                 else
+%                     s = ds.getSequence(seqnames{j}, numframes);
+%                 end
+% 
+%                 moseg.MosegDriver2.genvid(s, algName, expname);
+%             end
+%         end
+%         
+%         function genvid(seq, algName, expname)
+%             [~, outviddir]  = moseg.MosegDriver2.getOutDir();
+% 
+%             viddir = [outviddir '/Videos'];
+%             algviddir = [viddir '/' algName];
+%             expviddir = [algviddir '/' expname];
+% 
+%             if (~exist(viddir, 'dir')); mkdir(viddir); end
+%             if (~exist(algviddir, 'dir')); mkdir(algviddir); end
+%             if (~exist(expviddir, 'dir')); mkdir(expviddir); end
+%             
+%             statedir = moseg.MosegDriver2.getStorageDir(algName, seq, expname, false);
+%             
+%             vidfile = [expviddir '/' seq.SeqName '-seg.avi'];
+%             if (exist(vidfile, 'file'))
+%                 fprintf('Video file already exist, skipping.\n');
+%                 return;
+%             end                
+%                 
+%             vid = VideoWriter(vidfile);   
+%             open(vid);        
+%             for fno=seq.Frames
+%                 % Load the corresponding state file.
+%                 s = load([ statedir '/state' num2str(fno) '.mat']);
+%                 fnames = fieldnames(s);
+%                 obj.mosegmenter = s.(fnames{1});
+%                 im = seq.readImage(fno);
+%                 outim = obj.mosegmenter.genim(im);
+%                 writeVideo(vid, outim);            
+%             end 
+%             close(vid);        
+%         end        
+%         
+%         function [sumstats, stats] = evalall(ds, algName, expname, numframes, from, to)
+%             if (nargin < 4)
+%                 numframes = 'all';
+%             end
+%             
+%             % Get list of sequences
+%             [seqnames, seqnframes] = ds.getSequences();
+%             sumstats = struct;
+%             if (~ischar(numframes))
+%                 idx = find(seqnframes >= numframes);
+%             else
+%                 idx = 1:length(seqnames);
+%             end
+% 
+%             k = 1;
+%             idx = 6; %% for debug 3 for cars2
+%             
+%             for j=idx
+%                 disp(seqnames{j});
+%                 if (ischar(numframes))
+%                     ss = ds.getSequence(seqnames{j});
+%                 else
+%                     ss = ds.getSequence(seqnames{j}, numframes);
+%                 end
+% 
+%                 statedir = moseg.MosegDriver2.getStorageDir(algName, ss, expname, true);  %% false if the folder no exist, please create
+% 
+%                 if (~exist(statedir, 'dir'))
+%                     fprintf('Did not find data directory, skipping\n');
+%                     continue;
+%                 end
+% 
+%                 if (nargin > 4)
+%                     s = moseg.MosegDriver2.eval(ss, algName, expname, from ,to);
+%                 else
+%                     s = moseg.MosegDriver2.eval(ss, algName, expname);                    
+%                 end
+%                 stats(k) = s;
+%                 k = k+1;
+%             end
+
+%             sumstats.lt10percent = sum([stats(:).lt10percent]);
+%             sumstats.oversegpenalty = mean([stats(:).oversegpenalty]);
+%             sumstats.density = mean([stats(:).density]);
+%             sumstats.avgerr = mean([stats(:).avgerr]);
+%             sumstats.overallerr = mean([stats(:).overallerr]);
+%             sumstats.algname = algName;
+%         end
+        
+%         function stats = eval(seq, algName, expname, from, to)
+%             statedir = moseg.MosegDriver2.getStorageDir(algName, seq, expname, false);
+%             
+%             %%%% boolean vis, print
+%             vis = 1;  %% 0 
+%             print = 0;
+% 
+%             nregions = seq.GTNumRegions;
+%             rgnsize = zeros(1, seq.GTNumRegions);
+% 
+%             % Create map from scales 2 regions
+%             %scale2region = zeros(1,256);
+%             % Problem with gt images have aliasing effects
+%             scale2region = ones(1,256);
+%             scale2region(seq.GTScales +1) = 1:length(seq.GTScales);
+% 
+%             gtframes = [seq.GTFrames(:).fno];
+%             %%%%%%%%% To ignore the first gt frame
+%             %gtframes = gtframes(2:end);
+%             if (nargin > 3)
+%                 to = min(length(seq.Frames), to);
+%                 gtframes = gtframes(gtframes <= seq.Frames(end) & gtframes >= seq.Frames(from) & gtframes <= seq.Frames(to));
+%             else
+%                 gtframes = gtframes(gtframes <= seq.Frames(end)); % & gtframes >= seq.Frames(50));
+%             end
+% 
+%             nclust = 0;
+%             clust2lbl = [];
+%             for i=gtframes
+%                 im = seq.readGTImage(i);    
+%                 v = im(:);
+%                 for j=1:seq.GTNumRegions
+%                     rgnsize(j) = rgnsize(j) + sum(v == seq.GTScales(j));
+%                 end
+% 
+%                 s = load([ statedir '/state' num2str(i) '.mat']);
+%                 fnames = fieldnames(s);
+%                 mm = s.(fnames{1});
+%                 state = mm.CurrState;
+%                 % Change this to only consider visible clusters in GT frames. Since we use a dummy cluster for outliers, and for the smae region clusters change over time.
+%                 %nclust = max([nclust state.lbls]); 
+%                 clust2lbl = unique([clust2lbl state.lbls(state.lbls ~=0)]);
+%             end
+%             nclust = length(clust2lbl);
+%             lbl2clust = zeros(1, max(clust2lbl));
+%             lbl2clust(clust2lbl) = 1:nclust;
+%             disp('Unique lbls found :');
+%             disp(clust2lbl);
+% 
+%             clustsize = zeros(1, nclust);
+%             rgnclust = zeros(seq.GTNumRegions, nclust);
+% 
+%             doubleocc = 0;
+%             for i=gtframes
+%                 im = double(seq.readGTImage(i));        
+%                 occupied = false(size(im));
+%                 s = load([ statedir '/state' num2str(i) '.mat']);
+%                 fnames = fieldnames(s);
+%                 mm = s.(fnames{1});
+%                 state = mm.CurrState;
+%                 for j=1:nclust
+%                     clustsize(j) = clustsize(j) + sum(state.lbls == clust2lbl(j));
+%                 end
+% 
+%                 % Find number of points in 
+%                 haslbl = state.lbls ~=0;
+%                 p = round(state.points(1:2, haslbl));
+%                 occupied(sub2ind(size(im),p(2,:),p(1,:))) = 1;
+%                 rlbls = scale2region(im(sub2ind(size(im),p(2,:),p(1,:)))+1);  %% right label list from GT
+%                 clbls = lbl2clust(state.lbls(haslbl));
+%                 for j=1:size(p,2)
+%                     rgnclust(rlbls(j), clbls(j)) = rgnclust(rlbls(j), clbls(j)) + 1;
+%                 end
+%                 doubleocc = doubleocc + (size(p,2) - sum(occupied(:)));
+%             end
+% 
+%             % Assign each region its largest cluster
+%             coverage = sum(rgnclust, 2);
+%             [~, isorted] = sort(coverage,'descend');
+%             [~, rgn2clust] = max(rgnclust,[], 2);
+% 
+%             clust2rgn = zeros(1, nclust);
+%             positives = zeros(1, nregions);
+%             negatives = zeros(1, nregions);
+%             wnegatives = zeros(1, nregions);
+%             stats.oversegpenalty = 0;
+%             % Compute poisitives and negatives
+%             for c=1:nclust
+%                 if (clustsize(c) == 0) continue; end
+%                 nassigned = sum(rgn2clust == c);
+%                 r = find(rgn2clust == c);
+%                 switch nassigned
+%                     case 1
+%                         % Cluster assigned to one region
+%                         % r is the region to count positives for.
+%                     case 0
+%                         % Cluster not assigned at all (oversegmentation)
+%                         % count positives for most covered region
+%                         stats.oversegpenalty = stats.oversegpenalty+1;
+%                         % Find most covered region
+%                         [~,r] = max(rgnclust(:,c));
+%                     otherwise 
+%                         % Cluster assigned multiple times (undersegmentation)
+%                         % Find most covered region
+%                         [~, irmost] = max(rgnclust(r,c));
+%                         r = r(irmost);
+%                 end
+%                 clust2rgn(c) = r;
+% 
+%                 positives(r) = positives(r) + rgnclust(r,c);
+%                 for r2=1:nregions
+%                     wnegatives(r2) = wnegatives(r2) + rgnclust(r2,c) * seq.GTPenalty(r,r2);
+%                     if (r2~=r)
+%                         negatives(r2) = negatives(r2) + rgnclust(r2,c);
+%                     end
+%                 end
+%             end
+% 
+%             % Compute final numbers
+%             stats.seqname = seq.SeqName;
+%             totalcoverage = sum(sum(rgnclust)) - doubleocc; 
+%             stats.density = 100.0 * totalcoverage / (length(gtframes) * numel(im)); %% num of trajectory / (num gf GT * num of pixel in image) 
+%             totpos = sum(positives);
+%             totneg = sum(negatives);
+%             totwneg = sum(wnegatives);
+%             stats.overallerr = 0;
+%             if (totpos + totneg > 0)
+%                 stats.overallerr = 100.0 * totwneg / (totneg + totpos);
+%             end
+%             stats.visrgns = sum(rgnsize > 0);
+%             rgnerr = 100 .* ones(1,nregions);
+%             for j=1:nregions
+%                 if (positives(j) > 0)
+%                     rgnerr(j) = 100 .* negatives(j) ./ (negatives(j) + positives(j));
+%                 end
+%             end
+%             %rgnerr = rgnerr .* (positives > 0) + 100 .* (positives == 0);
+%             stats.avgerr = sum(rgnerr .* (rgnsize > 0)) ./ stats.visrgns;
+%             stats.lt10percent = max(sum(rgnerr < 10) - 1, 0);
+%             stats.seqname = seq.SeqName;
+%             stats.numframes = length(seq.Frames);
+%             stats.numgtframes = length(gtframes);
+%             stats.nregions = nregions;
+%             stats.rgnerr = rgnerr;
+%             
+%             if (vis)
+%                 for i= gtframes
+%                     gim = double(seq.readGTImage(i));        
+%                     im = seq.readImage(i);
+%                     s = load([statedir '/state' num2str(i) '.mat']);
+%                     mm = s.(fnames{1});
+%                     state = mm.CurrState;
+%                    %%% state = s.moseg.CurrState;
+% 
+%                     % Find number of points in 
+%                     haslbl = state.lbls ~=0;
+%                     p = round(state.points(1:2, haslbl));
+%                     occupied(sub2ind(size(gim),p(2,:),p(1,:))) = 1;
+%                     rlbls = scale2region(gim(sub2ind(size(gim),p(2,:),p(1,:)))+1);
+%                    %%% clbls = state.lbls(haslbl);
+%                     clbls = lbl2clust(state.lbls(haslbl));
+%                     
+%                     cla;
+%                     imshow(im);
+%                     hold on;
+%                     cmap = [0 0 0; hsv(nclust)];
+%                     caxis(gca,[0 nclust]);
+%                      
+%                     %%% scatter(p(1,:),p(2,:),20,cmap(2,:),'+'); %%  plot the trajectory , size, color 
+%                  
+%                    scatter(p(1,:),p(2,:),20,cmap(clbls+1,:),'+');
+% 
+%                     % Find incorrectly labelled points
+%                     incorrect = (clust2rgn(clbls) ~= rlbls);
+%                     %incorrect = ((clbls) ~= rlbls);
+%                     %scatter(p(1,incorrect),p(2,incorrect),20,cmap(3,:),'o','LineWidth',2);
+%                     scatter(p(1,incorrect),p(2,incorrect),20,cmap(clbls(incorrect)+1,:),'o','LineWidth',2);
+%                     pause;
+%                 end                
+%             end
+%         end    
+        
+%         function expungeStateFiles(ds, algName, expname)
+%             % Get list of sequences
+%             seqnames = ds.getSequences();
+%             for j=1:length(seqnames)
+%                 disp(seqnames{j});
+%                 ss = ds.getSequence(seqnames{j});
+%                 statedir = moseg.MosegDriver2.getStorageDir(algName, ss, expname, false);
+%                 if (~exist(statedir, 'dir'))
+%                     fprintf('Did not find data directory, skipping\n');
+%                     continue;
+%                 end
+%                 
+%                 for i=ss.Frames
+%                     s = load([ statedir '/state' num2str(i) '.mat']);
+%                     fnames = fieldnames(s);
+%                     mm = s.(fnames{1});
+%                     mm.MosegAlg = [];
+%                     mm.PrevState = [];
+%                     delete([statedir '/state' num2str(i) '.mat']);
+%                     save([statedir '/state' num2str(i) '.mat'], 'mm');
+%                 end
+%             end            
+%         end
+%                 
+       
+%         
+%         function str = exportLatexSummaryTable(sumstats)
+%             A = zeros(length(sumstats), 5);
+%             A(:,1) = [sumstats(:).density];
+%             A(:,2) = [sumstats(:).overallerr];
+%             A(:,3) = [sumstats(:).avgerr];
+%             A(:,4) = [sumstats(:).oversegpenalty];
+%             A(:,5) = [sumstats(:).lt10percent];
+%             str = moseg.MosegUtils.latextable(A, 'Horiz', {'Density','Overall Error','Average Error', 'OverSeg', 'lt10'}, 'Vert', {sumstats(:).algname}, 'Vline',[0 1 1 2 3 4 5 NaN], 'Hline',[0 1:length(sumstats) NaN]);
+%         end
+%                 
+%         function str = exportLatexStatsTable(stats)
+%             A = zeros(length(stats), 5);
+%             A(:,1) = [stats(:).density];
+%             A(:,2) = [stats(:).overallerr];
+%             A(:,3) = [stats(:).avgerr];
+%             A(:,4) = [stats(:).oversegpenalty];
+%             A(:,5) = [stats(:).lt10percent];
+%             str = moseg.MosegUtils.latextable(A, 'Horiz', {'Density','Overall Error','Average Error', 'OverSeg', 'lt10'}, 'Vert', {stats(:).seqname}, 'Vline',[0 1 1 2 3 4 5 NaN], 'Hline',[0 1:length(stats) NaN]);
+%         end
+%         
+%         function str = exportLatexStatsTotalTable(stats, sumstats)
+%             n = length(stats);
+%             A = zeros(n+1, 5);
+%             A(1:n,1) = [stats(:).density];
+%             A(1:n,2) = [stats(:).overallerr];
+%             A(1:n,3) = [stats(:).avgerr];
+%             A(1:n,4) = [stats(:).oversegpenalty];
+%             A(1:n,5) = [stats(:).lt10percent];
+%             A(end,1) = [sumstats.density];
+%             A(end,2) = [sumstats.overallerr];
+%             A(end,3) = [sumstats.avgerr];
+%             A(end,4) = [sumstats.oversegpenalty];
+%             A(end,5) = [sumstats.lt10percent];
+%             
+%             str = moseg.MosegUtils.latextable(A, 'Horiz', {'Density','Overall Error','Average Error', 'OverSeg', 'lt10'}, 'Vert', {stats(:).seqname, 'Total'}, 'Vline',[0 1 1 2 3 4 5 NaN], 'Hline',[0 1:n n+1 n+1 NaN]);
+%         end
+%     end    
+    end
+end
