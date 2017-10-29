@@ -1,7 +1,7 @@
 # MultilayerBSMC
 
 This is an implementation of "A Multilayer-Based Framework for Online Background Subtraction with Freely Moving Cameras" ICCV'17 with Matlab. 
-You are always welcome to use it as a to-compare method with a uncommercial goal. 
+You are always welcome to use it as a to-compare method with an uncommercial goal. 
 
 # Data
 Test Dataset: cars1~8, people1, people2 from [Berkeley Motion Segmentation Dataset (BMS-26)](http://lmb.informatik.uni-freiburg.de/resources/datasets/moseg.en.html) 
