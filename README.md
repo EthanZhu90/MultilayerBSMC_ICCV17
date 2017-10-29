@@ -8,6 +8,9 @@ Test Dataset: cars1~8, people1, people2 from [Berkeley Motion Segmentation Datas
 Put the testing data to the folder './Data/moseg_dataset/'  
 To prepare the data, you need to convert the images to 'ppm' format, and prepare addtional 'XXX.bmf' file.  
 The example is shown in 'cars1'.
+# Optical Flow
+The optical flow I am using is pretty slow. To speed up, you are suggested to use faster deep-learning-based method. OR you can  directly use the trajectory-generating methods.   
+I will add it to my TODO list.
 
 # Code 
 To run the code, check "runHopkins.m".   
