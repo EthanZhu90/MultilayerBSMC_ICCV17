@@ -10,8 +10,10 @@ res = 3;
 
 
 datapath = [ basedir, '/../../Data/moseg_dataset/', dataset];
-img_template = [datapath, '/', dataset, '_%02d.jpg'];
-[start_frame, last_frame] = getFrameNums(datapath, 'jpg', dataset, '_%02d.jpg');
+img_template = [datapath, '/', dataset, '_%02d.ppm'];
+%[start_frame, last_frame] = getFrameNums(datapath, 'jpg', [dataset, '_%02d.jpg']);
+
+[start_frame, last_frame] = getFrameNums(datapath, 'ppm', [dataset,'_%02d.ppm']);
 
 options.addNew = 1;
 options.sigma_traj = 10;
