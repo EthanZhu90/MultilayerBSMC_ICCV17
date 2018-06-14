@@ -25,14 +25,14 @@ alg = moseg.MosegAlgLblProp(1, 'Options', algopt);
 
 bs = moseg.BackgroundSubtractor2('MosegAlgorithm', alg, 'Tracker', tracker, 'Detector', detector);
 
-% % % process frames in online way
-% % bs.initialize(seq);  
-% % for i= seq.Frames
-% %     bs.step(seq);
-% %     % uncomment if you want check the intermidiate result
-% %     %bs.plot(seq, i);
-% %     %pause();
-% % end
+% process frames in online way
+bs.initialize(seq);  
+for i= seq.Frames
+    bs.step(seq);
+    % uncomment if you want check the intermidiate result
+    %bs.plot(seq, i);
+    %pause();
+end
 
 %%% generate visualized result, and score. 
 gtpath  = sprintf('../Data/groundtruth/%s_gt.mat', segname); 
